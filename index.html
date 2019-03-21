@@ -3,93 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <title>Title</title>
+
+    <style>
+        canvas {
+            display: block;
+            width: 80vw;
+            height: 80vh;
+            margin: 0 auto;
+            background: #000;
+        }
+    </style>
 </head>
 <body>
-<canvas id="oscilloscope" width="500" height="512" style="background: #000; height:512px; width:1000px;"></canvas>
-<br>
-<button onclick="connect(processor, context, processAudio)">Connect</button>
-<button onclick="disconnect(processor, context)">Disconnect</button>
+<canvas id="oscilloscope"></canvas>
+<div id="controls">
+    <label>Volume</label>
+    <input type="button" id="volume_up" value="+" onclick="volumeUp()">
+    <input type="button" id="volume_down" value="-" onclick="volumeDown()">
+    <br>
+
+    <label>Sensitivity (dB):</label>
+    <input type="number" id="minDb"
+           value="-80" min="-200" max="0" step="10"
+           onchange="minDbChange()"> -
+    <input type="number" id="maxDb"
+           value="-30" min="-200" max="0" step="10"
+           onchange="maxDbChange()">
+    <br>
+    <!--
+        <label>Frequency range (Hz):</label>
+        <input type="number" id="minHz"
+               value="500" min="0" max="22000" step="100"
+               onchange="minHzChange()"> -
+        <input type="number" id="maxHz"
+               value="15000" min="0" max="22000" step="100"
+               onchange="maxHzChange()">
+        <br>
+    -->
+    <label>Scale</label>
+    <input type="radio" name="scale" value="linear" onclick="linearScale()" checked="checked"> Linear
+    <input type="radio" name="scale" value="logarithm" onclick="logScale()"> Logarithm
+
+</div>
+<button onclick="audioWrapper.connect()">Connect</button>
+<button onclick="audioWrapper.disconnect()">Disconnect</button>
 </body>
+<script type="text/javascript" src="AudioWrapper.js"></script>
 <script type="text/javascript">
     var time = 0;
-    var context, analyser, processor, source, dataArray;
-
-    var handleSuccess = function ( stream ) {
-        context                        = new (window.AudioContext || window.webkitAudioContext)();
-        analyser                       = context.createAnalyser();
-        analyser.fftSize               = 2048;
-        analyser.maxDecibels           = -40;
-        analyser.minDecibels           = -90;
-        analyser.smoothingTimeConstant = 0;
-
-        source    = context.createMediaStreamSource( stream );
-        processor = context.createScriptProcessor( Math.pow( 2, 10 ), 1, 1 );
-        source.connect( processor );
-        source.connect( analyser );
-
-        var bufferLength = analyser.frequencyBinCount;
-        dataArray        = new Uint8Array( bufferLength );
-        //dataArray        = new Float32Array( bufferLength );
-
-        prepareUI();
-    };
-
-    var connect = function ( processor, context, callback ) {
-        processor.connect( context.destination );
-        processor.onaudioprocess = callback;
-    };
-
-    var disconnect = function ( processor, context, callback ) {
-        processor.disconnect( context.destination );
-        processor.onaudioprocess = null;
-    };
-
-    var processAudio = function () {
-        analyser.getByteFrequencyData( dataArray );
-        //analyser.getFloatFrequencyData( dataArray );
-        //analyser.getByteTimeDomainData( dataArray );
-
-        var oscilloscope = document.getElementById( 'oscilloscope' );
-        var context      = oscilloscope.getContext( '2d' );
-        var canvasData   = context.getImageData( 0, 0, oscilloscope.width, oscilloscope.height );
-
-        for ( var i = 0; i < dataArray.length; i++ ) {
-            var x     = time % oscilloscope.width;
-            var y     = oscilloscope.height - i ;
-            var index = (x + y * oscilloscope.width) * 4;
-
-            canvasData.data[ index ]     = 255;
-            canvasData.data[ index + 1 ] = 255;
-            canvasData.data[ index + 2 ] = 255;
-            canvasData.data[ index + 3 ] = Math.round( dataArray[ i ] / 2.55 );
-            //canvasData.data[ index + 3 ] = Math.round( -1 * dataArray[ i ] / 255 );
-
-            //draw a white line after the current frequency
-            index = (x + 1 + y * oscilloscope.width) * 4;
-
-            canvasData.data[ index ]     = 255;
-            canvasData.data[ index + 1 ] = 0;
-            canvasData.data[ index + 2 ] = 0;
-            canvasData.data[ index + 3 ] = 255;
-        }
-        context.putImageData( canvasData, 0, 0 );
-        time++;
-        //console.log( dataArray );
-    };
-
-    var prepareUI = function () {
-        var oscilloscope = document.getElementById( 'oscilloscope' );
-        var context      = oscilloscope.getContext( '2d' );
-        context.clearRect( 0, 0, oscilloscope.width, oscilloscope.height );
-    };
+    var audioWrapper;
 
     navigator.mediaDevices.getUserMedia(
         {
             audio: true,
             video: false
-        } ).then( handleSuccess );
+        } ).then( function ( stream ) {
+        audioWrapper = new AudioWrapper();
+        audioWrapper.init();
+        audioWrapper.initStreamSource( stream );
+    } );
 
-    function drawPixel( x, y, r, g, b, a ) {
+    function volumeUp() {
+        if ( audioWrapper ) {
+            audioWrapper.gainNode.gain.value *= 10;
+        }
+    }
+
+    function volumeDown() {
+        if ( audioWrapper ) {
+            audioWrapper.gainNode.gain.value /= 10;
+        }
+    }
+
+    function minDbChange() {
+        if ( audioWrapper ) {
+            audioWrapper.analyser.minDecibels = Number( document.getElementById( "minDb" ).value );
+        }
+    }
+
+    function maxDbChange() {
+        if ( audioWrapper ) {
+            audioWrapper.analyser.maxDecibels = Number( document.getElementById( "maxDb" ).value );
+        }
+    }
+
+    function minHzChange() {
+        if ( audioWrapper ) {
+            audioWrapper.config.minFrequencyHz = Number( document.getElementById( "minHz" ).value );
+            audioWrapper.initBandwidth();
+            audioWrapper.prepareUI();
+        }
+    }
+
+    function maxHzChange() {
+        if ( audioWrapper ) {
+            audioWrapper.config.maxFrequencyHz = Number( document.getElementById( "maxHz" ).value );
+            audioWrapper.initBandwidth();
+            audioWrapper.prepareUI();
+        }
+    }
+
+    function linearScale() {
+        audioWrapper.config.scale = audioWrapper.scaleFunctions.linear;
+    }
+
+    function logScale() {
+        audioWrapper.config.scale = audioWrapper.scaleFunctions.logarithm;
     }
 </script>
 </html>
